@@ -1,0 +1,102 @@
+law(trivial,language(coffeescript))
+
+UPON "sent", ->
+	if @message.type is "beginCommunity"
+		if not CS("communityApproval")?
+			DO "set", key: "communityApproval", value: []
+			controllerIP = @sender.split("@")[1]
+			DO "set", key: "ip", value: controllerIP
+
+		DO "forward", receiver: @receiver, sender: @self, message: {"type": "askCommunityApproval", "message": "Planing to start a community? Do you agree?"}
+		return true
+
+UPON "arrived", ->
+	if @message.type is "communityBeginApproval" and @message.approval = "yes"
+		if CS("communityApproval")? and @sender not in CS("communityApproval")
+			approvalList = CS("communityApproval")
+			newList = approvalList.concat(@sender)
+			DO "set", key: "communityApproval", value: newList
+			DO "deliver", receiver: @self, message: "Received approval from "+@sender
+
+		if CS("communityApproval").length==2
+			for m of CS("communityApproval")
+				print CS("communityApproval")[m]
+				DO "forward", receiver: CS("communityApproval")[m], sender: @self, message: "Lets begin the community."
+			DO "deliver", receiver: @self, sender: @self, message: "Starting Community."
+			print CS("ip")			
+			DO "forward", receiver: "manager"+"@"+CS("ip"), sender: @self, message:{"type": "initiateCommunity", "text": "Lets begin the community.", "founders": CS("communityApproval")}  
+		return true
+
+UPON "arrived", ->
+	if @message.type is "initiateCommunity"
+		DO "set", key: "community", value: 1
+		foundersList = @message.founders.concat(@sender)		
+		DO "set", key: "founders", value: foundersList
+		print CS("founders")
+		DO "set", key: "users", value: {}
+		DO "deliver", sender: @sender, receiver: @self, message: "Community has been set up"
+		return true	
+
+UPON "sent", ->
+	if @message.type is "register" and @receiver.startsWith("manager")
+		DO "deliver", receiver: @self, sender: @self, message: "Waiting approval from founders."
+		DO "set", key: "name", value: @message.name
+		DO "set", key: "founderApprovals", value: []
+		DO "forward", receiver: @receiver, sender: @self, message: {"type": "userRegistration", "user": @sender, "pseudoName": @message.name}
+		return true
+
+UPON "arrived", ->
+	if @message.type is "userRegistration"		
+		if not CS("community")?
+			DO "forward", receiver: @sender, sender: @receiver, message: "Community does not exist."
+			return true
+
+		names = Object.keys(CS("users"))
+		if @message.pseudoName in names
+			DO "forward", receiver: @sender, sender: @receiver, message: "Your name has already been used by other users. Please choose a different name."
+			return true
+
+		DO "deliver", receiver: @self, sender: @sender, message: "Forwarding user registration request to founders for user - " +@sender
+		for m of CS("founders")
+			DO "forward", receiver: CS("founders")[m], sender: @self, message: {"type": "userApprovalRequest", user: @message.pseudoName}
+		return true
+
+UPON "arrived", ->
+	if @message.type is "userApproval"
+		if CS("founderApprovals")? and @sender not in CS("founderApprovals")
+			newList = CS("founderApprovals").concat(@sender)
+			DO "set", key: "founderApprovals", value: newList
+			DO "deliver", receiver: @self, message: "Approval received from "+@sender
+			if CS("founderApprovals").length==3
+				ip = @sender.split("@")[1]
+				DO "set", key: "memberFlag", value: 1
+				DO "forward", sender: @self, receiver: "manager"+"@"+ip, message: "Founders approved user: "+@receiver
+				DO "forward", sender: @self, receiver: "manager"+"@"+ip, message: {"type": "addUser", "name": CS("name")}
+				DO "deliver", receiver: @self, message: "Membership approved."
+			return true
+	
+UPON "arrived", ->
+	if @message.type is "addUser" and @receiver.startsWith("manager")
+		u = CS("users")
+		u[@message.name] = @sender
+		DO "set", key: "users", value: u
+		print "User added"
+		print CS("users")
+		return true
+
+		
+
+UPON "sent", ->
+	DO "forward"
+	return true
+
+UPON "arrived", ->
+	DO "deliver"
+	return true
+
+UPON "disconnected", ->
+  
+	DO "quit"
+  
+	return true
+
