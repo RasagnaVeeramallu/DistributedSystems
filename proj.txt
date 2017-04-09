@@ -84,6 +84,31 @@ UPON "arrived", ->
 		print CS("users")
 		return true
 
+UPON "sent", ->
+	if @message.type is "revokeUser"
+		if "name" not in Object.keys(@message)
+			DO "deliver", message: "Please specify the name."
+			return true
+		ip = @sender.split("@")[1]
+		DO "forward", sender: @self, receiver: "manager"+"@"+ip, message: {"type": "revokeUser", "name": @message.name}
+		return true
+
+UPON "arrived", ->
+	if @message.type is "revokeUser" and @receiver.startsWith("manager")
+		DO "deliver", sender: @self, receiver: @self, message: "Membership revoked for "+@message.name
+		DO "forward", sender: @self, receiver: CS("users")[@message.name], message: {"type": "memberRemoved"}
+		users = CS("users")
+		delete users[@message.name]
+		DO "set", key: "users", value: users
+		
+		print CS("users")
+		return true 
+
+UPON "arrived", ->
+	if @message.type is "memberRemoved"
+		DO "deliver", sender: @sender, receiver: @receiver, message: "Sorry. Your membership has been revoked."
+		DO "unset", key: "memberFlag"
+		return true
 		
 
 UPON "sent", ->
